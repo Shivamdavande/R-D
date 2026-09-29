@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: r2r-contractor-backend
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js

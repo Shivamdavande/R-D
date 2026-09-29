@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const reportController_1 = require("../controllers/reportController");
+const auth_1 = require("../middleware/auth");
+const siteAuth_1 = require("../middleware/siteAuth");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.get('/site/:id/pdf', siteAuth_1.requireSiteAccess, reportController_1.exportSitePDF);
+router.get('/site/:id/excel', siteAuth_1.requireSiteAccess, reportController_1.exportSiteCSV);
+router.get('/site/:id/csv', siteAuth_1.requireSiteAccess, reportController_1.exportSiteCSV);
+exports.default = router;

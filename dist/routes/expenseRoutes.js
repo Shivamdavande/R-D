@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const expenseController_1 = require("../controllers/expenseController");
+const auth_1 = require("../middleware/auth");
+const upload_1 = require("../middleware/upload");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.get('/:id', expenseController_1.getExpenseById);
+router.put('/:id', upload_1.upload.single('billImage'), expenseController_1.updateExpense);
+router.delete('/:id', expenseController_1.deleteExpense);
+exports.default = router;

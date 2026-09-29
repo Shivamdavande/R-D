@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const syncController_1 = require("../controllers/syncController");
+const auth_1 = require("../middleware/auth");
+const siteAuth_1 = require("../middleware/siteAuth");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.post('/batch', siteAuth_1.requireSiteAccess, syncController_1.syncBatchExpenses);
+exports.default = router;
