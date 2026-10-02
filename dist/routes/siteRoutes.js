@@ -9,6 +9,7 @@ const auth_1 = require("../middleware/auth");
 const role_1 = require("../middleware/role");
 const siteAuth_1 = require("../middleware/siteAuth");
 const upload_1 = require("../middleware/upload");
+const siteImageController_1 = require("../controllers/siteImageController");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 // List & Create Sites
@@ -27,6 +28,11 @@ router.post('/:id/reopen', siteAuth_1.requireSiteAccess, siteAuth_1.requireSiteO
 // Site Expenses Sub-resource
 router.get('/:id/expenses', siteAuth_1.requireSiteAccess, expenseController_1.getSiteExpenses);
 router.post('/:id/expenses', siteAuth_1.requireSiteAccess, siteAuth_1.requireActiveSite, upload_1.upload.single('billImage'), expenseController_1.addExpense);
+// Site Images Sub-resource
+router.get('/:id/images', siteAuth_1.requireSiteAccess, siteImageController_1.getSiteImages);
+router.post('/:id/images', siteAuth_1.requireSiteAccess, siteAuth_1.requireActiveSite, upload_1.upload.single('image'), siteImageController_1.uploadSiteImage);
+router.delete('/:id/images/:imageId', siteAuth_1.requireSiteAccess, siteAuth_1.requireActiveSite, siteImageController_1.deleteSiteImage);
+router.get('/:id/images/pdf', siteAuth_1.requireSiteAccess, siteImageController_1.getSiteImagesPDF);
 // Site Summaries & Aggregations
 router.get('/:id/summary', siteAuth_1.requireSiteAccess, summaryController_1.getSiteSummary);
 router.get('/:id/item-summary', siteAuth_1.requireSiteAccess, summaryController_1.getItemWiseSummary);

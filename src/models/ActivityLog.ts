@@ -10,7 +10,9 @@ export type ActivityAction =
   | 'EXPENSE_ADDED'
   | 'EXPENSE_UPDATED'
   | 'EXPENSE_DELETED'
-  | 'EXPENSES_SYNCED';
+  | 'EXPENSES_SYNCED'
+  | 'SITE_IMAGE_ADDED'
+  | 'SITE_IMAGE_DELETED';
 
 export interface IActivityLog extends Document {
   _id: Types.ObjectId;

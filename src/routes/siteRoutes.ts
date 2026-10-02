@@ -18,6 +18,13 @@ import { requireRole } from '../middleware/role';
 import { requireSiteAccess, requireSiteOwner, requireActiveSite } from '../middleware/siteAuth';
 import { upload } from '../middleware/upload';
 
+import {
+  getSiteImages,
+  uploadSiteImage,
+  deleteSiteImage,
+  getSiteImagesPDF
+} from '../controllers/siteImageController';
+
 const router = Router();
 
 router.use(authenticate);
@@ -42,6 +49,12 @@ router.post('/:id/reopen', requireSiteAccess, requireSiteOwner, reopenSite);
 // Site Expenses Sub-resource
 router.get('/:id/expenses', requireSiteAccess, getSiteExpenses);
 router.post('/:id/expenses', requireSiteAccess, requireActiveSite, upload.single('billImage'), addExpense);
+
+// Site Images Sub-resource
+router.get('/:id/images', requireSiteAccess, getSiteImages);
+router.post('/:id/images', requireSiteAccess, requireActiveSite, upload.single('image'), uploadSiteImage);
+router.delete('/:id/images/:imageId', requireSiteAccess, requireActiveSite, deleteSiteImage);
+router.get('/:id/images/pdf', requireSiteAccess, getSiteImagesPDF);
 
 // Site Summaries & Aggregations
 router.get('/:id/summary', requireSiteAccess, getSiteSummary);

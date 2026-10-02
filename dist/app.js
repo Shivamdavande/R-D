@@ -19,8 +19,23 @@ const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
-// Serve uploaded receipt images
-app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
+// Serve uploaded receipt & site images
+app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads'), {
+    maxAge: '7d',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.png')) {
+            res.setHeader('Content-Type', 'image/png');
+        }
+        else if (filePath.endsWith('.webp')) {
+            res.setHeader('Content-Type', 'image/webp');
+        }
+        else {
+            res.setHeader('Content-Type', 'image/jpeg');
+        }
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    }
+}));
 // Root & Health check
 app.get('/api/health', (req, res) => {
     res.status(200).json({

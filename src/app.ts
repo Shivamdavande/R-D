@@ -18,8 +18,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded receipt images
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve uploaded receipt & site images
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '../uploads'), {
+    maxAge: '7d',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.png')) {
+        res.setHeader('Content-Type', 'image/png');
+      } else if (filePath.endsWith('.webp')) {
+        res.setHeader('Content-Type', 'image/webp');
+      } else {
+        res.setHeader('Content-Type', 'image/jpeg');
+      }
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    }
+  })
+);
 
 // Root & Health check
 app.get('/api/health', (req, res) => {
