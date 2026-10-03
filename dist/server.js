@@ -6,11 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const app_1 = __importDefault(require("./app"));
 const db_1 = require("./config/db");
 const env_1 = require("./config/env");
+const imageCleanupService_1 = require("./services/imageCleanupService");
 const startServer = async () => {
     await (0, db_1.connectDB)();
+    // Start 14-day closed site image auto-cleanup background service
+    (0, imageCleanupService_1.startImageCleanupCron)();
     app_1.default.listen(env_1.config.port, () => {
         console.log(`=======================================================`);
-        console.log(` 🚀 R2R Contractor Backend API Server Running`);
+        console.log(` 🚀 R&D Contractor Backend API Server Running`);
         console.log(` 📍 PORT: ${env_1.config.port}`);
         console.log(` 🌐 ENV: ${env_1.config.nodeEnv}`);
         console.log(` 🏷️  COMPANY: ${env_1.config.companyName}`);

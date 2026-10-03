@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { Expense } from '../models/Expense';
 import { Site } from '../models/Site';
 import { ActivityLog } from '../models/ActivityLog';
+import { uploadToImageKit } from '../services/imageKitService';
 
 export const addExpense = async (req: AuthRequest, res: Response) => {
   try {
@@ -46,10 +47,20 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Site not found.' });
     }
 
-    // Handle file upload if present in req.file
+    // Handle file upload with permanent ImageKit cloud storage
     let uploadedBillUrl = billImageUrl;
     if (req.file) {
-      uploadedBillUrl = `/uploads/${req.file.filename}`;
+      try {
+        const fileBuffer = req.file.buffer || (req.file.path ? require('fs').readFileSync(req.file.path) : null);
+        if (fileBuffer) {
+          const ikRes = await uploadToImageKit(fileBuffer, req.file.originalname || `bill_${Date.now()}.jpg`, `/sites/${siteId}/bills`);
+          uploadedBillUrl = ikRes.url;
+        } else {
+          uploadedBillUrl = `/uploads/${req.file.filename}`;
+        }
+      } catch (ikErr) {
+        uploadedBillUrl = `/uploads/${req.file.filename}`;
+      }
     }
 
     const expense = await Expense.create({
@@ -70,6 +81,8 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
       syncStatus: 'SYNCED',
       isDeleted: false
     });
+
+    await expense.populate('createdBy', 'name email role');
 
     // Write Activity Log
     await ActivityLog.create({

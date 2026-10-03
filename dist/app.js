@@ -40,7 +40,7 @@ app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../
 app.get('/api/health', (req, res) => {
     res.status(200).json({
         status: 'OK',
-        app: 'R2R – Raw to Refined Contractor Backend',
+        app: 'R&D CONSTRUCTIONS Contractor Backend',
         timestamp: new Date().toISOString()
     });
 });

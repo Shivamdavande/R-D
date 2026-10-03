@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireSiteOwner = exports.requireActiveSite = exports.requireSiteAccess = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const Site_1 = require("../models/Site");
 const SiteMember_1 = require("../models/SiteMember");
 /**
@@ -9,8 +13,11 @@ const SiteMember_1 = require("../models/SiteMember");
 const requireSiteAccess = async (req, res, next) => {
     try {
         const siteId = req.params.id || req.params.siteId || req.body.siteId;
-        if (!siteId) {
-            return res.status(400).json({ success: false, message: 'Site ID is required.' });
+        if (!siteId || siteId === 'undefined' || siteId === 'null') {
+            return res.status(400).json({ success: false, message: 'Valid Site ID is required.' });
+        }
+        if (!mongoose_1.default.Types.ObjectId.isValid(siteId)) {
+            return res.status(400).json({ success: false, message: 'Invalid Site ID format.' });
         }
         const user = req.user;
         if (!user) {
@@ -21,16 +28,16 @@ const requireSiteAccess = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Site not found.' });
         }
         // Owner role has global access to all sites
-        if (user.role === 'OWNER' || site.createdBy.toString() === user._id.toString()) {
+        if (user.role === 'OWNER') {
             req.siteRole = 'OWNER';
             return next();
         }
-        // Check membership
+        // Check membership: Non-owners only have access if assigned by Owner in SiteMember
         const membership = await SiteMember_1.SiteMember.findOne({ siteId: site._id, userId: user._id });
         if (!membership) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied. You are not assigned to this site.'
+                message: 'Access denied. You are not assigned to this site by the Owner.'
             });
         }
         req.siteRole = membership.role;
@@ -47,8 +54,9 @@ exports.requireSiteAccess = requireSiteAccess;
 const requireActiveSite = async (req, res, next) => {
     try {
         const siteId = req.params.id || req.params.siteId || req.body.siteId;
-        if (!siteId)
+        if (!siteId || siteId === 'undefined' || siteId === 'null' || !mongoose_1.default.Types.ObjectId.isValid(siteId)) {
             return next();
+        }
         const site = await Site_1.Site.findById(siteId);
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found.' });

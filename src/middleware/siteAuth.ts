@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { AuthRequest } from './auth';
 import { Site } from '../models/Site';
 import { SiteMember } from '../models/SiteMember';
@@ -10,8 +11,12 @@ export const requireSiteAccess = async (req: AuthRequest, res: Response, next: N
   try {
     const siteId = req.params.id || req.params.siteId || req.body.siteId;
 
-    if (!siteId) {
-      return res.status(400).json({ success: false, message: 'Site ID is required.' });
+    if (!siteId || siteId === 'undefined' || siteId === 'null') {
+      return res.status(400).json({ success: false, message: 'Valid Site ID is required.' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(siteId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Site ID format.' });
     }
 
     const user = req.user;
@@ -25,17 +30,17 @@ export const requireSiteAccess = async (req: AuthRequest, res: Response, next: N
     }
 
     // Owner role has global access to all sites
-    if (user.role === 'OWNER' || site.createdBy.toString() === user._id.toString()) {
+    if (user.role === 'OWNER') {
       req.siteRole = 'OWNER';
       return next();
     }
 
-    // Check membership
+    // Check membership: Non-owners only have access if assigned by Owner in SiteMember
     const membership = await SiteMember.findOne({ siteId: site._id, userId: user._id });
     if (!membership) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. You are not assigned to this site.'
+        message: 'Access denied. You are not assigned to this site by the Owner.'
       });
     }
 
@@ -52,7 +57,9 @@ export const requireSiteAccess = async (req: AuthRequest, res: Response, next: N
 export const requireActiveSite = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const siteId = req.params.id || req.params.siteId || req.body.siteId;
-    if (!siteId) return next();
+    if (!siteId || siteId === 'undefined' || siteId === 'null' || !mongoose.Types.ObjectId.isValid(siteId)) {
+      return next();
+    }
 
     const site = await Site.findById(siteId);
     if (!site) {

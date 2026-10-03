@@ -10,6 +10,9 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const getSiteSummary = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!id || id === 'undefined' || id === 'null' || !mongoose_1.default.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Valid Site ID is required.' });
+        }
         const site = await Site_1.Site.findById(id);
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found.' });
@@ -81,6 +84,7 @@ const getSiteSummary = async (req, res) => {
         return res.status(200).json({
             success: true,
             site: {
+                _id: site._id,
                 id: site._id,
                 siteName: site.siteName,
                 clientName: site.clientName,
@@ -108,6 +112,9 @@ exports.getSiteSummary = getSiteSummary;
 const getItemWiseSummary = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!id || id === 'undefined' || id === 'null' || !mongoose_1.default.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Valid Site ID is required.' });
+        }
         const { category, search, user, startDate, endDate } = req.query;
         const match = { siteId: new mongoose_1.default.Types.ObjectId(id), isDeleted: false };
         if (category)
@@ -131,13 +138,22 @@ const getItemWiseSummary = async (req, res) => {
         const itemSummary = await Expense_1.Expense.aggregate([
             { $match: match },
             {
+                $lookup: {
+                    from: 'users',
+                    localField: 'createdBy',
+                    foreignField: '_id',
+                    as: 'creator'
+                }
+            },
+            {
                 $group: {
                     _id: { itemName: '$itemName', unit: '$unit' },
                     category: { $first: '$category' },
                     totalQuantity: { $sum: '$quantity' },
                     totalCost: { $sum: '$amount' },
                     entryCount: { $sum: 1 },
-                    lastEntryDate: { $max: '$date' }
+                    lastEntryDate: { $max: '$date' },
+                    creatorNames: { $addToSet: { $arrayElemAt: ['$creator.name', 0] } }
                 }
             },
             {
@@ -156,7 +172,14 @@ const getItemWiseSummary = async (req, res) => {
                         ]
                     },
                     entryCount: 1,
-                    lastEntryDate: 1
+                    lastEntryDate: 1,
+                    addedByUsers: {
+                        $filter: {
+                            input: '$creatorNames',
+                            as: 'name',
+                            cond: { $ne: ['$$name', null] }
+                        }
+                    }
                 }
             },
             { $sort: { totalCost: -1 } }
@@ -178,6 +201,9 @@ exports.getItemWiseSummary = getItemWiseSummary;
 const getMeasurementBook = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!id || id === 'undefined' || id === 'null' || !mongoose_1.default.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Valid Site ID is required.' });
+        }
         const site = await Site_1.Site.findById(id);
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found.' });
@@ -186,11 +212,20 @@ const getMeasurementBook = async (req, res) => {
         const mbItems = await Expense_1.Expense.aggregate([
             { $match: { siteId: new mongoose_1.default.Types.ObjectId(id), isDeleted: false } },
             {
+                $lookup: {
+                    from: 'users',
+                    localField: 'createdBy',
+                    foreignField: '_id',
+                    as: 'creator'
+                }
+            },
+            {
                 $group: {
                     _id: { itemName: '$itemName', unit: '$unit', category: '$category' },
                     totalQuantity: { $sum: '$quantity' },
                     totalCost: { $sum: '$amount' },
-                    entryCount: { $sum: 1 }
+                    entryCount: { $sum: 1 },
+                    creatorNames: { $addToSet: { $arrayElemAt: ['$creator.name', 0] } }
                 }
             },
             {
@@ -207,6 +242,13 @@ const getMeasurementBook = async (req, res) => {
                             { $round: [{ $divide: ['$totalCost', '$totalQuantity'] }, 2] },
                             0
                         ]
+                    },
+                    addedByUsers: {
+                        $filter: {
+                            input: '$creatorNames',
+                            as: 'name',
+                            cond: { $ne: ['$$name', null] }
+                        }
                     },
                     remarks: { $concat: ['Internal cost aggregation (', { $toString: '$entryCount' }, ' entries)'] }
                 }

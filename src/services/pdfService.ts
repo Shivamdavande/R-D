@@ -9,6 +9,7 @@ interface ItemSummaryDoc {
   totalCost: number;
   averageRate: number;
   entryCount: number;
+  addedByUsers?: string[];
 }
 
 interface UserSummaryDoc {
@@ -25,6 +26,7 @@ interface PDFData {
   profitPercentage: number;
   categoryBreakdown: Array<{ _id: string; totalAmount: number; count: number }>;
   items: ItemSummaryDoc[];
+  detailedExpenses?: any[];
   userSummary: UserSummaryDoc[];
   companyName?: string;
 }
@@ -139,7 +141,7 @@ export const generateSitePDFReport = (data: PDFData): Promise<Buffer> => {
         y = 40;
       }
 
-      // Section 4: Item-Wise Quantity & Cost Aggregation
+      // Section 4: Item-Wise Quantity & Cost Aggregation (with Added By)
       doc.fillColor('#0F172A').fontSize(12).font('Helvetica-Bold').text('ITEM-WISE QUANTITY & COST SUMMARY', 40, y);
       y += 18;
 
@@ -147,9 +149,9 @@ export const generateSitePDFReport = (data: PDFData): Promise<Buffer> => {
       doc.rect(40, y, 515, 20).fill('#1E293B');
       doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold');
       doc.text('Item Description', 50, y + 5);
-      doc.text('Category', 200, y + 5);
-      doc.text('Total Qty', 310, y + 5);
-      doc.text('Avg Rate', 390, y + 5);
+      doc.text('Category', 170, y + 5);
+      doc.text('Total Qty', 260, y + 5);
+      doc.text('Added By', 340, y + 5);
       doc.text('Total Cost (₹)', 460, y + 5, { align: 'right' });
       y += 20;
 
@@ -157,24 +159,24 @@ export const generateSitePDFReport = (data: PDFData): Promise<Buffer> => {
         if (y > 750) {
           doc.addPage();
           y = 40;
-          // Redraw header
           doc.rect(40, y, 515, 20).fill('#1E293B');
           doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold');
           doc.text('Item Description', 50, y + 5);
-          doc.text('Category', 200, y + 5);
-          doc.text('Total Qty', 310, y + 5);
-          doc.text('Avg Rate', 390, y + 5);
+          doc.text('Category', 170, y + 5);
+          doc.text('Total Qty', 260, y + 5);
+          doc.text('Added By', 340, y + 5);
           doc.text('Total Cost (₹)', 460, y + 5, { align: 'right' });
           y += 20;
         }
 
+        const addedByStr = item.addedByUsers && item.addedByUsers.length > 0 ? item.addedByUsers.join(', ') : 'Supervisor';
         const rowBg = index % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
         doc.rect(40, y, 515, 18).fill(rowBg);
         doc.fillColor('#1E293B').fontSize(9).font('Helvetica');
-        doc.text(item.itemName, 50, y + 4, { width: 145 });
-        doc.text(item.category, 200, y + 4);
-        doc.text(`${item.totalQuantity} ${item.unit}`, 310, y + 4);
-        doc.text(`₹${item.averageRate.toLocaleString('en-IN')}`, 390, y + 4);
+        doc.text(item.itemName, 50, y + 4, { width: 115 });
+        doc.text(item.category, 170, y + 4, { width: 85 });
+        doc.text(`${item.totalQuantity} ${item.unit}`, 260, y + 4, { width: 75 });
+        doc.text(addedByStr, 340, y + 4, { width: 115 });
         doc.text(`₹${item.totalCost.toLocaleString('en-IN')}`, 460, y + 4, { align: 'right' });
         y += 18;
       });
@@ -186,7 +188,58 @@ export const generateSitePDFReport = (data: PDFData): Promise<Buffer> => {
         y = 40;
       }
 
-      // Section 5: Entry Summary by Users
+      // Section 5: Detailed Item Expenses Log (Individual Entries with Added By)
+      if (data.detailedExpenses && data.detailedExpenses.length > 0) {
+        doc.fillColor('#0F172A').fontSize(12).font('Helvetica-Bold').text('DETAILED ITEM ENTRY LOG (SHOWING CREATOR / ADDED BY)', 40, y);
+        y += 18;
+
+        doc.rect(40, y, 515, 20).fill('#0F172A');
+        doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold');
+        doc.text('Date', 50, y + 5);
+        doc.text('Item Name', 110, y + 5);
+        doc.text('Qty × Rate', 250, y + 5);
+        doc.text('Added By', 370, y + 5);
+        doc.text('Amount (₹)', 460, y + 5, { align: 'right' });
+        y += 20;
+
+        data.detailedExpenses.forEach((exp: any, index: number) => {
+          if (y > 750) {
+            doc.addPage();
+            y = 40;
+            doc.rect(40, y, 515, 20).fill('#0F172A');
+            doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold');
+            doc.text('Date', 50, y + 5);
+            doc.text('Item Name', 110, y + 5);
+            doc.text('Qty × Rate', 250, y + 5);
+            doc.text('Added By', 370, y + 5);
+            doc.text('Amount (₹)', 460, y + 5, { align: 'right' });
+            y += 20;
+          }
+
+          const u = exp.createdBy;
+          const uName = typeof u === 'object' && u?.name ? u.name : 'Supervisor';
+          const dStr = exp.date ? new Date(exp.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
+          const rowBg = index % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
+
+          doc.rect(40, y, 515, 18).fill(rowBg);
+          doc.fillColor('#1E293B').fontSize(8.5).font('Helvetica');
+          doc.text(dStr, 50, y + 4);
+          doc.text(exp.itemName || '', 110, y + 4, { width: 135 });
+          doc.text(`${exp.quantity} ${exp.unit} × ₹${(exp.rate || 0).toLocaleString('en-IN')}`, 250, y + 4, { width: 115 });
+          doc.text(uName, 370, y + 4, { width: 85 });
+          doc.text(`₹${(exp.amount || 0).toLocaleString('en-IN')}`, 460, y + 4, { align: 'right' });
+          y += 18;
+        });
+
+        y += 15;
+      }
+
+      if (y > 680) {
+        doc.addPage();
+        y = 40;
+      }
+
+      // Section 6: Entry Summary by Users
       if (data.userSummary && data.userSummary.length > 0) {
         doc.fillColor('#0F172A').fontSize(12).font('Helvetica-Bold').text('USER ENTRY CONTRIBUTION SUMMARY', 40, y);
         y += 18;
@@ -213,7 +266,7 @@ export const generateSitePDFReport = (data: PDFData): Promise<Buffer> => {
 
       // Footer stamp
       doc.fontSize(8).fillColor('#94A3B8').text(
-        'Generated via R2R – Raw to Refined Site Expense & P&L Management System',
+        'Generated via R&D CONSTRUCTIONS Site Expense & P&L Management System',
         40,
         780,
         { align: 'center', width: 515 }

@@ -17,7 +17,15 @@ const userSchema = new mongoose_1.Schema({
         default: 'SUPERVISOR'
     },
     companyName: { type: String, default: 'R&D CONSTRUCTIONS' },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    isVerified: { type: Boolean, default: true },
+    otpHash: { type: String },
+    otpExpiresAt: { type: Date },
+    otpResendCooldownAt: { type: Date },
+    otpAttempts: { type: Number, default: 0 },
+    resetPasswordOtpHash: { type: String },
+    resetPasswordOtpExpires: { type: Date },
+    resetPasswordOtpAttempts: { type: Number, default: 0 }
 }, { timestamps: true });
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password'))

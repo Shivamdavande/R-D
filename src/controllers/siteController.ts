@@ -2,9 +2,15 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Site } from '../models/Site';
 import { SiteMember } from '../models/SiteMember';
+import { SiteImage } from '../models/SiteImage';
 import { Expense } from '../models/Expense';
 import { ActivityLog } from '../models/ActivityLog';
 import { User } from '../models/User';
+import { generateSitePDFReport } from '../services/pdfService';
+import { generateSiteImagesPDF } from '../services/imagePdfService';
+import { sendSupervisorAssignmentEmail, sendSiteFinalReportEmail } from '../services/emailService';
+import { config } from '../config/env';
+
 
 export const createSite = async (req: AuthRequest, res: Response) => {
   try {
@@ -77,10 +83,12 @@ export const getSites = async (req: AuthRequest, res: Response) => {
       // Owner sees all sites
       sites = await Site.find().sort({ createdAt: -1 }).populate('createdBy', 'name email');
     } else {
-      // Supervisors & Viewers see assigned sites
+      // Supervisors ONLY see sites where Owner has explicitly assigned/added them
       const memberships = await SiteMember.find({ userId: user._id });
       const siteIds = memberships.map(m => m.siteId);
-      sites = await Site.find({ _id: { $in: siteIds } }).sort({ createdAt: -1 }).populate('createdBy', 'name email');
+      sites = await Site.find({
+        _id: { $in: siteIds }
+      }).sort({ createdAt: -1 }).populate('createdBy', 'name email');
     }
 
     // Attach total expenses & expense counts for dashboard cards
@@ -185,8 +193,17 @@ export const updateSite = async (req: AuthRequest, res: Response) => {
 
 export const closeSite = async (req: AuthRequest, res: Response) => {
   try {
+    if (req.user?.role !== 'OWNER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied. Only the Owner can close a construction site.'
+      });
+    }
+
     const { id } = req.params;
-    const site = await Site.findById(id);
+    const { contractValue, clientName, actualEndDate } = req.body || {};
+
+    const site = await Site.findById(id).populate('createdBy', 'name email');
 
     if (!site) {
       return res.status(404).json({ success: false, message: 'Site not found.' });
@@ -196,6 +213,14 @@ export const closeSite = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Site is already closed.' });
     }
 
+    // Update optional site details if supplied
+    if (contractValue !== undefined && !isNaN(Number(contractValue))) {
+      site.contractValue = Number(contractValue);
+    }
+    if (clientName) site.clientName = clientName;
+    if (actualEndDate) site.actualEndDate = new Date(actualEndDate);
+
+    // Save site closure state first
     site.status = 'CLOSED';
     site.closedBy = req.user!._id;
     site.closedAt = new Date();
@@ -206,12 +231,212 @@ export const closeSite = async (req: AuthRequest, res: Response) => {
       userId: req.user!._id,
       userName: req.user!.name,
       action: 'SITE_CLOSED',
-      details: `Site "${site.siteName}" was closed by Owner ${req.user!.name}`
+      details: `Site "${site.siteName}" was closed by ${req.user!.role === 'OWNER' ? 'Owner' : 'Supervisor'} ${req.user!.name}`
     });
+
+    // Generate final site report PDF
+    let pdfBuffer: Buffer | null = null;
+    let totalCost = 0;
+    let grossProfit = 0;
+    let profitPercentage = 0;
+
+    try {
+      const categoryBreakdown = await Expense.aggregate([
+        { $match: { siteId: site._id, isDeleted: false } },
+        {
+          $group: {
+            _id: '$category',
+            totalAmount: { $sum: '$amount' },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { totalAmount: -1 } }
+      ]);
+
+      const itemSummary = await Expense.aggregate([
+        { $match: { siteId: site._id, isDeleted: false } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'createdBy',
+            foreignField: '_id',
+            as: 'creator'
+          }
+        },
+        {
+          $group: {
+            _id: { itemName: '$itemName', unit: '$unit' },
+            category: { $first: '$category' },
+            totalQuantity: { $sum: '$quantity' },
+            totalCost: { $sum: '$amount' },
+            entryCount: { $sum: 1 },
+            creatorNames: { $addToSet: { $arrayElemAt: ['$creator.name', 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            itemName: '$_id.itemName',
+            unit: '$_id.unit',
+            category: 1,
+            totalQuantity: 1,
+            totalCost: 1,
+            averageRate: {
+              $cond: [
+                { $gt: ['$totalQuantity', 0] },
+                { $round: [{ $divide: ['$totalCost', '$totalQuantity'] }, 2] },
+                0
+              ]
+            },
+            entryCount: 1,
+            addedByUsers: {
+              $filter: {
+                input: '$creatorNames',
+                as: 'name',
+                cond: { $ne: ['$$name', null] }
+              }
+            }
+          }
+        },
+        { $sort: { totalCost: -1 } }
+      ]);
+
+      const detailedExpenses = await Expense.find({ siteId: site._id, isDeleted: false })
+        .sort({ date: -1 })
+        .populate('createdBy', 'name email role');
+
+      const userEntrySummary = await Expense.aggregate([
+        { $match: { siteId: site._id, isDeleted: false } },
+        {
+          $group: {
+            _id: '$createdBy',
+            totalAmount: { $sum: '$amount' },
+            count: { $sum: 1 }
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'userInfo'
+          }
+        },
+        { $unwind: '$userInfo' },
+        {
+          $project: {
+            userName: '$userInfo.name',
+            userRole: '$userInfo.role',
+            totalAmount: 1,
+            count: 1
+          }
+        }
+      ]);
+
+      totalCost = categoryBreakdown.reduce((sum, item) => sum + item.totalAmount, 0);
+      const val = site.contractValue || 0;
+      grossProfit = val > 0 ? val - totalCost : 0;
+      profitPercentage = val > 0 ? Number(((grossProfit / val) * 100).toFixed(2)) : 0;
+
+      pdfBuffer = await generateSitePDFReport({
+        site,
+        totalCost,
+        grossProfit,
+        profitPercentage,
+        categoryBreakdown,
+        items: itemSummary,
+        detailedExpenses,
+        userSummary: userEntrySummary,
+        companyName: config.companyName
+      });
+    } catch (pdfErr) {
+      console.error('Error generating PDF for closed site:', pdfErr);
+    }
+
+    // Generate Site Photos PDF if images exist
+    let photosPdfBuffer: Buffer | null = null;
+    let sitePhotosCount = 0;
+
+    try {
+      const siteImages = await SiteImage.find({ siteId: site._id })
+        .populate('uploadedBy', 'name email role')
+        .sort({ uploadedAt: -1, createdAt: -1 });
+
+      sitePhotosCount = siteImages.length;
+      if (siteImages.length > 0) {
+        photosPdfBuffer = await generateSiteImagesPDF({
+          site,
+          images: siteImages as any,
+          companyName: config.companyName
+        });
+      }
+    } catch (imgPdfErr) {
+      console.error('Error generating photos PDF for closed site:', imgPdfErr);
+    }
+
+    // Determine Owner recipient email
+    let ownerUser: any = null;
+
+    if (req.user && req.user.role === 'OWNER') {
+      ownerUser = req.user;
+    } else if (site.createdBy && (site.createdBy as any).email) {
+      ownerUser = site.createdBy;
+    } else {
+      const ownerMember = await SiteMember.findOne({ siteId: site._id, role: 'OWNER' }).populate('userId', 'name email');
+      if (ownerMember && (ownerMember.userId as any)?.email) {
+        ownerUser = ownerMember.userId;
+      } else {
+        const fallbackOwner = await User.findOne({ role: 'OWNER' });
+        if (fallbackOwner) ownerUser = fallbackOwner;
+      }
+    }
+
+    let emailSent = false;
+    let emailErrorMsg = '';
+
+    if (pdfBuffer && ownerUser && ownerUser.email) {
+      try {
+        const emailRes = await sendSiteFinalReportEmail({
+          ownerEmail: ownerUser.email,
+          ownerName: ownerUser.name || 'Owner',
+          supervisorName: req.user!.name,
+          siteName: site.siteName,
+          earning: site.contractValue || 0,
+          totalCost,
+          profitLoss: grossProfit,
+          pdfBuffer,
+          photosPdfBuffer,
+          photoCount: sitePhotosCount,
+          siteId: site._id,
+          userId: req.user!._id
+        });
+
+        emailSent = emailRes.success;
+        if (!emailRes.success) {
+          emailErrorMsg = emailRes.error || 'Brevo email delivery failed.';
+        }
+      } catch (e: any) {
+        console.error('Error sending report email via Brevo:', e);
+        emailErrorMsg = e.message || 'Email delivery failure.';
+      }
+    } else {
+      emailErrorMsg = 'Could not retrieve Owner email address or generate PDF report.';
+    }
+
+    if (!emailSent) {
+      return res.status(200).json({
+        success: true,
+        message: 'Site closed successfully, but the report email could not be sent.',
+        emailSent: false,
+        emailError: emailErrorMsg,
+        site
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: 'Site closed successfully.',
+      message: 'Site closed successfully. Final report has been sent to the owner.',
+      emailSent: true,
       site
     });
   } catch (error: any) {
@@ -265,6 +490,11 @@ export const addCollaborator = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'User to add not found.' });
     }
 
+    const site = await Site.findById(id);
+    if (!site) {
+      return res.status(404).json({ success: false, message: 'Site not found.' });
+    }
+
     const existingMember = await SiteMember.findOne({ siteId: id, userId });
     if (existingMember) {
       existingMember.role = role || existingMember.role;
@@ -287,10 +517,30 @@ export const addCollaborator = async (req: AuthRequest, res: Response) => {
       details: `Added ${targetUser.name} (${targetUser.email}) as ${newMember.role} to site`
     });
 
+    // Send Supervisor Assignment Email via Brevo if role is SUPERVISOR
+    let emailSent = false;
+    if (newMember.role === 'SUPERVISOR' && targetUser.email) {
+      try {
+        const emailRes = await sendSupervisorAssignmentEmail({
+          supervisorEmail: targetUser.email,
+          supervisorName: targetUser.name,
+          siteName: site.siteName,
+          ownerName: req.user!.name,
+          date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+          siteId: site._id,
+          userId: targetUser._id
+        });
+        emailSent = emailRes.success;
+      } catch (emailErr) {
+        console.error('Failed to send supervisor assignment email:', emailErr);
+      }
+    }
+
     return res.status(201).json({
       success: true,
-      message: `Collaborator ${targetUser.name} added to site successfully.`,
-      member: newMember
+      message: `Collaborator ${targetUser.name} added to site successfully.${emailSent ? ' Notification email sent to supervisor.' : ''}`,
+      member: newMember,
+      emailSent
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message || 'Failed to add collaborator.' });

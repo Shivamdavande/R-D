@@ -3,43 +3,50 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteFromImageKit = exports.uploadToImageKit = void 0;
+exports.deleteSitePhotosFromImageKit = exports.deleteFromImageKit = exports.uploadToImageKit = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const axios_1 = __importDefault(require("axios"));
+const imagekit_1 = __importDefault(require("imagekit"));
 const env_1 = require("../config/env");
+let imagekitInstance = null;
+const getImageKit = () => {
+    const { publicKey, privateKey, urlEndpoint } = env_1.config.imageKit;
+    if (privateKey && privateKey.trim() !== '' && publicKey && publicKey.trim() !== '') {
+        if (!imagekitInstance) {
+            imagekitInstance = new imagekit_1.default({
+                publicKey,
+                privateKey,
+                urlEndpoint: urlEndpoint || 'https://ik.imagekit.io/kc2o5o9mt'
+            });
+        }
+        return imagekitInstance;
+    }
+    return null;
+};
 /**
  * Uploads an image file to ImageKit securely from the backend.
- * Never exposes private keys to client apps.
+ * Uses official ImageKit SDK supporting any file size.
  */
 const uploadToImageKit = async (fileBuffer, fileName, folder = '/site_images') => {
-    const { publicKey, privateKey, urlEndpoint } = env_1.config.imageKit;
-    // Check if ImageKit credentials are model configured
-    if (privateKey && privateKey.trim() !== '' && publicKey && publicKey.trim() !== '') {
+    const ik = getImageKit();
+    if (ik) {
         try {
-            const base64File = fileBuffer.toString('base64');
-            const authHeader = 'Basic ' + Buffer.from(`${privateKey}:`).toString('base64');
-            const formData = new URLSearchParams();
-            formData.append('file', base64File);
-            formData.append('fileName', fileName);
-            formData.append('folder', folder);
-            const response = await axios_1.default.post('https://upload.imagekit.io/api/v1/files/upload', formData, {
-                headers: {
-                    Authorization: authHeader,
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
+            const response = await ik.upload({
+                file: fileBuffer,
+                fileName: fileName || `site_photo_${Date.now()}.jpg`,
+                folder: folder || '/site_images',
+                useUniqueFileName: true
             });
-            if (response.data && response.data.url) {
+            if (response && response.url) {
                 return {
-                    fileId: response.data.fileId || `ik_${Date.now()}`,
-                    url: response.data.url,
-                    name: response.data.name || fileName
+                    fileId: response.fileId,
+                    url: response.url,
+                    name: response.name || fileName
                 };
             }
         }
         catch (err) {
-            console.error('ImageKit API upload error:', err?.response?.data || err?.message || err);
-            // Fallback to local storage if API call fails
+            console.error('ImageKit SDK upload error:', err?.message || err);
         }
     }
     // Local storage fallback if ImageKit keys not provided or API unavailable
@@ -67,7 +74,6 @@ exports.uploadToImageKit = uploadToImageKit;
 const deleteFromImageKit = async (fileId) => {
     if (!fileId)
         return true;
-    const { privateKey } = env_1.config.imageKit;
     // If local file
     if (fileId.startsWith('local_')) {
         const filename = fileId.replace('local_', '');
@@ -82,22 +88,40 @@ const deleteFromImageKit = async (fileId) => {
         }
         return true;
     }
-    // ImageKit file deletion via API
-    if (privateKey && privateKey.trim() !== '') {
+    // ImageKit file deletion via SDK
+    const ik = getImageKit();
+    if (ik) {
         try {
-            const authHeader = 'Basic ' + Buffer.from(`${privateKey}:`).toString('base64');
-            await axios_1.default.delete(`https://api.imagekit.io/v1/files/${fileId}`, {
-                headers: {
-                    Authorization: authHeader
-                }
-            });
+            await ik.deleteFile(fileId);
             return true;
         }
         catch (err) {
-            console.error('ImageKit API delete error:', err?.response?.data || err?.message || err);
+            console.error('ImageKit SDK delete error:', err?.message || err);
             return false;
         }
     }
     return true;
 };
 exports.deleteFromImageKit = deleteFromImageKit;
+/**
+ * Deletes all images of a site from ImageKit cloud storage and local fallback storage.
+ */
+const deleteSitePhotosFromImageKit = async (siteImages) => {
+    for (const img of siteImages) {
+        if (img.imageKitFileId) {
+            await (0, exports.deleteFromImageKit)(img.imageKitFileId).catch((e) => console.error('Error deleting image from ImageKit:', e?.message || e));
+        }
+        else if (img.imageUrl && img.imageUrl.startsWith('/uploads/')) {
+            try {
+                const localPath = path_1.default.join(__dirname, '../../', img.imageUrl);
+                if (fs_1.default.existsSync(localPath)) {
+                    fs_1.default.unlinkSync(localPath);
+                }
+            }
+            catch (e) {
+                console.error('Error cleaning up local image file:', e);
+            }
+        }
+    }
+};
+exports.deleteSitePhotosFromImageKit = deleteSitePhotosFromImageKit;

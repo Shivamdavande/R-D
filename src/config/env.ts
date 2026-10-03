@@ -19,5 +19,10 @@ export const config = {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
     apiKey: process.env.CLOUDINARY_API_KEY || '',
     apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+  },
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY || '',
+    senderEmail: process.env.BREVO_SENDER_EMAIL || 'noreply@randdconstructions.com',
+    senderName: process.env.BREVO_SENDER_NAME || process.env.COMPANY_NAME || 'R&D CONSTRUCTIONS'
   }
 };

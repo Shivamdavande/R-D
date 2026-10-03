@@ -31,12 +31,21 @@ export const exportSitePDF = async (req: AuthRequest, res: Response) => {
     const itemSummary = await Expense.aggregate([
       { $match: { siteId: new mongoose.Types.ObjectId(id), isDeleted: false } },
       {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'creator'
+        }
+      },
+      {
         $group: {
           _id: { itemName: '$itemName', unit: '$unit' },
           category: { $first: '$category' },
           totalQuantity: { $sum: '$quantity' },
           totalCost: { $sum: '$amount' },
-          entryCount: { $sum: 1 }
+          entryCount: { $sum: 1 },
+          creatorNames: { $addToSet: { $arrayElemAt: ['$creator.name', 0] } }
         }
       },
       {
@@ -54,11 +63,22 @@ export const exportSitePDF = async (req: AuthRequest, res: Response) => {
               0
             ]
           },
-          entryCount: 1
+          entryCount: 1,
+          addedByUsers: {
+            $filter: {
+              input: '$creatorNames',
+              as: 'name',
+              cond: { $ne: ['$$name', null] }
+            }
+          }
         }
       },
       { $sort: { totalCost: -1 } }
     ]);
+
+    const detailedExpenses = await Expense.find({ siteId: new mongoose.Types.ObjectId(id), isDeleted: false })
+      .sort({ date: -1 })
+      .populate('createdBy', 'name email role');
 
     const userEntrySummary = await Expense.aggregate([
       { $match: { siteId: new mongoose.Types.ObjectId(id), isDeleted: false } },
@@ -100,11 +120,12 @@ export const exportSitePDF = async (req: AuthRequest, res: Response) => {
       profitPercentage,
       categoryBreakdown,
       items: itemSummary,
+      detailedExpenses,
       userSummary: userEntrySummary,
       companyName: config.companyName
     });
 
-    const filename = `R2R_Report_${site.siteName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
+    const filename = `RD_Report_${site.siteName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

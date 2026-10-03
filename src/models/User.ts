@@ -12,6 +12,14 @@ export interface IUser extends Document {
   role: UserRole;
   companyName: string;
   isActive: boolean;
+  isVerified: boolean;
+  otpHash?: string;
+  otpExpiresAt?: Date;
+  otpResendCooldownAt?: Date;
+  otpAttempts?: number;
+  resetPasswordOtpHash?: string;
+  resetPasswordOtpExpires?: Date;
+  resetPasswordOtpAttempts?: number;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -29,7 +37,15 @@ const userSchema = new Schema<IUser>(
       default: 'SUPERVISOR' 
     },
     companyName: { type: String, default: 'R&D CONSTRUCTIONS' },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    isVerified: { type: Boolean, default: true },
+    otpHash: { type: String },
+    otpExpiresAt: { type: Date },
+    otpResendCooldownAt: { type: Date },
+    otpAttempts: { type: Number, default: 0 },
+    resetPasswordOtpHash: { type: String },
+    resetPasswordOtpExpires: { type: Date },
+    resetPasswordOtpAttempts: { type: Number, default: 0 }
   },
   { timestamps: true }
 );
